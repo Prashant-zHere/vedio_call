@@ -1,0 +1,34 @@
+# Python / Flask
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.tox/
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+
+# Environment files (do NOT commit secrets)
+.env
+.env.*
+
+# Local runtime / editor / OS files
+*.log
+.DS_Store
+Thumbs.db
+
+# IDEs
+.idea/
+.vscode/
+
+# Node (if you add tooling later)
+node_modules/
+package-lock.json
+yarn.lock
+

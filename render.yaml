@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: secure-1to1-video-call
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn --worker-class eventlet -w 1 app:app
+    autoDeploy: true
+    envVars:
+      - key: FLASK_ENV
+        value: production
+      - key: SECRET_KEY
+        generateValue: true
+      - key: PASSWORD_USER1_HASH
+        sync: false
+      - key: PASSWORD_USER2_HASH
+        sync: false
+      - key: SESSION_IDLE_TIMEOUT_SECONDS
+        value: "900"
+      - key: RATE_LIMIT_PER_MINUTE
+        value: "60"
+      - key: TURN_URLS
+        sync: false
+      - key: TURN_USERNAME
+        sync: false
+      - key: TURN_CREDENTIAL
+        sync: false

@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <title>Private Call Login</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+  </head>
+  <body class="page">
+    <main class="auth">
+      <section class="card">
+        <header class="card__header">
+          <h1 class="title">Private 1-to-1 Call</h1>
+          <p class="subtitle">Enter your assigned password to continue.</p>
+        </header>
+
+        {% if error %}
+          <div class="alert" role="alert">{{ error }}</div>
+        {% endif %}
+
+        <form class="form" method="post" action="{{ url_for('login_post') }}" autocomplete="off">
+          <input type="hidden" name="csrf" value="{{ csrf }}" />
+
+          <label class="label" for="password">Password</label>
+          <input
+            class="input"
+            id="password"
+            name="password"
+            type="password"
+            inputmode="text"
+            autocapitalize="none"
+            autocomplete="current-password"
+            required
+            minlength="8"
+            maxlength="200"
+            aria-describedby="pwhelp"
+          />
+          <p class="help" id="pwhelp">
+            No signup, no rooms, and only two trusted users are allowed.
+          </p>
+
+          <button class="btn btn--primary" type="submit">Enter</button>
+        </form>
+
+        <footer class="card__footer">
+          <p class="fineprint">
+            Security note: your password is verified on the server only. The app does not store video/audio.
+          </p>
+        </footer>
+      </section>
+    </main>
+
+    <!-- CSP requires a nonce for any inline script; keep this minimal. -->
+    <script nonce="{{ nonce }}">
+      // UX: focus password on load (no sensitive data is exposed here).
+      (function () {
+        var el = document.getElementById("password");
+        if (el) el.focus();
+      })();
+    </script>
+  </body>
+</html>
