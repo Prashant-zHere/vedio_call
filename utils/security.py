@@ -4,7 +4,7 @@ import secrets
 import time
 from dataclasses import dataclass
 from hashlib import sha256
-from typing import Callable, Dict, Optional, Tuple
+from typing import Dict, Optional
 
 from werkzeug.security import check_password_hash, generate_password_hash
 
@@ -26,12 +26,10 @@ def now() -> float:
 
 
 def make_csrf_token() -> str:
-    # CSRF token for form POSTs; stored in session server-side.
     return secrets.token_urlsafe(32)
 
 
 def hash_password_for_env(plain: str) -> str:
-    # PBKDF2 is available in Werkzeug and is safe for password hashing.
     return generate_password_hash(plain, method="pbkdf2:sha256", salt_length=16)
 
 
@@ -40,9 +38,6 @@ def verify_password_hash(stored_hash: str, password: str) -> bool:
 
 
 def stable_anonymous_client_key(secret: str, ip: str, user_agent: str) -> str:
-    """
-    Returns a privacy-preserving, non-reversible identifier for rate limiting / lockouts.
-    """
     msg = (ip + "\n" + user_agent).encode("utf-8", "ignore")
     return hmac.new(secret.encode("utf-8"), msg, sha256).hexdigest()
 
@@ -54,10 +49,6 @@ class RateLimitState:
 
 
 class SlidingWindowRateLimiter:
-    """
-    Lightweight in-memory rate limiter.
-    """
-
     def __init__(self, limit_per_minute: int):
         self.limit = max(1, int(limit_per_minute))
         self._states: Dict[str, RateLimitState] = {}
@@ -79,10 +70,6 @@ class LockoutState:
 
 
 class LoginLockout:
-    """
-    Anti-bruteforce lockout.
-    """
-
     def __init__(self, max_fails: int = 8, lock_seconds: int = 300):
         self.max_fails = max(1, int(max_fails))
         self.lock_seconds = max(30, int(lock_seconds))
@@ -112,10 +99,6 @@ class LoginLockout:
 
 
 def security_headers(nonce: str) -> Dict[str, str]:
-    """
-    Returns a set of strict security headers.
-    CSP now allows the Socket.IO CDN for script loading.
-    """
     csp = (
         "default-src 'none'; "
         "base-uri 'none'; "
@@ -156,7 +139,6 @@ def no_store_headers() -> Dict[str, str]:
 
 def cli_main() -> None:
     import sys
-
     if len(sys.argv) >= 3 and sys.argv[1] == "hash":
         print(hash_password_for_env(sys.argv[2]))
         return

@@ -52,7 +52,6 @@
 
       <section class="notice" id="notice" aria-live="polite"></section>
 
-      <!-- Mobile: camera/mic must be requested after a user tap (browser security). -->
       <section class="permGate permGate--fixed" id="permGate">
         <p class="permGate__text" id="permGateText">
           Tap below to allow camera and microphone. Without this, the call cannot start.
@@ -65,7 +64,6 @@
     </main>
 
     <script nonce="{{ nonce }}">
-      // Inject minimal server-rendered config into JS without exposing secrets.
       window.__APP_CONFIG__ = Object.freeze({
         roomToken: {{ roomToken|tojson }},
         userId: {{ userId|tojson }},
@@ -76,7 +74,7 @@
         }
       });
     </script>
-    <!-- Use Socket.IO v4 CDN to avoid version mismatch -->
+    <!-- Use CDN for Socket.IO v4 to avoid protocol mismatch -->
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js" nonce="{{ nonce }}"></script>
     <script src="{{ url_for('static', filename='app.js') }}?v=5" nonce="{{ nonce }}"></script>
   </body>
