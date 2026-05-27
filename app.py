@@ -43,7 +43,8 @@ def create_app() -> Tuple[Flask, SocketIO]:
     session_cookie_secure_bool = session_cookie_secure in ("1", "true", "yes", "on")
     app.config.update(
         SESSION_COOKIE_HTTPONLY=True,
-        SESSION_COOKIE_SAMESITE="Strict",
+        # Lax works better on mobile after login redirect while staying same-site safe.
+        SESSION_COOKIE_SAMESITE="Lax",
         SESSION_COOKIE_SECURE=session_cookie_secure_bool,
         PERMANENT_SESSION_LIFETIME=int(os.getenv("SESSION_IDLE_TIMEOUT_SECONDS", "900")),
     )

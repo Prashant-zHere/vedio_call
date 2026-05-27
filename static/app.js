@@ -143,30 +143,50 @@
     return servers;
   }
 
+  async function playLocalVideo() {
+    if (!el.localVideo || !el.localVideo.srcObject) return;
+    try {
+      await el.localVideo.play();
+    } catch (_) {
+      // iOS may require another tap; user can retry the enable button.
+    }
+  }
+
+  async function requestMedia() {
+    const attempts = [
+      { audio: true, video: { facingMode: "user" } },
+      { audio: true, video: true },
+      { audio: true, video: false },
+    ];
+
+    let lastErr = null;
+    for (const constraints of attempts) {
+      try {
+        return await navigator.mediaDevices.getUserMedia(constraints);
+      } catch (err) {
+        lastErr = err;
+        if (err && (err.name === "NotAllowedError" || err.name === "PermissionDeniedError")) {
+          throw err;
+        }
+      }
+    }
+    throw lastErr || new Error("getUserMedia failed");
+  }
+
   async function ensureMedia() {
     if (localStream) return localStream;
     setStatus("Requesting camera/mic…");
-    setOverlay(true, "Waiting for permissions…");
+    setOverlay(true, "Allow camera + microphone in the popup…");
 
     try {
-      localStream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-        video: {
-          facingMode: "user",
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-        },
-      });
-
+      localStream = await requestMedia();
       el.localVideo.srcObject = localStream;
+      await playLocalVideo();
       setOverlay(false);
+      showPermGate(false);
       return localStream;
     } catch (err) {
-      setOverlay(true, "Camera/microphone permission is required.");
+      setOverlay(false);
       setStatus("Permissions needed", "bad");
       showNotice(permissionHelp(err));
       showPermGate(true, permissionHelp(err));
@@ -182,6 +202,7 @@
       const [stream] = ev.streams;
       if (stream && el.remoteVideo.srcObject !== stream) {
         el.remoteVideo.srcObject = stream;
+        el.remoteVideo.play().catch(() => {});
         setOverlay(false);
       }
     });
@@ -261,14 +282,15 @@
 
     setStatus("Connecting…");
 
+    // Mobile/Render: allow polling fallback; same-origin HTTPS only.
     socket = io({
-      transports: ["websocket"], // SECURITY: avoid long-polling downgrade.
-      upgrade: false,
+      transports: ["polling", "websocket"],
+      withCredentials: true,
       reconnection: true,
       reconnectionAttempts: Infinity,
       reconnectionDelay: 500,
       reconnectionDelayMax: 4000,
-      timeout: 8000,
+      timeout: 20000,
     });
 
     socket.on("connect", () => {
@@ -281,10 +303,16 @@
       setOverlay(true, "Reconnecting…");
     });
 
-    socket.on("connect_error", () => {
-      setStatus("Connection blocked", "bad");
-      showNotice("Connection blocked (auth/limit). If a 3rd user joined, server rejects it.");
-      setOverlay(true, "Access denied or room full.");
+    socket.on("connect_error", (err) => {
+      setStatus("Server connection failed", "bad");
+      const msg =
+        err && err.message
+          ? `Cannot connect to server (${err.message}). Refresh and log in again.`
+          : "Cannot connect to server. Refresh, log in again, or check Render is running.";
+      showNotice(msg);
+      setOverlay(true, "Server connection failed");
+      started = false;
+      showPermGate(true, msg);
     });
 
     socket.on("session", async (payload) => {
@@ -438,18 +466,20 @@
     });
   }
 
-  // MOBILE: Do not auto-request camera/mic — browsers block it without a user tap.
+  // MOBILE: camera/mic must start from a user tap (browser security).
   showPermGate(
     true,
-    "On iPhone/Android: use Chrome or Safari. After login, tap the button below to allow camera and microphone."
+    "Use Chrome or Safari (not WhatsApp/Instagram browser). Tap the green button, then tap Allow."
   );
-  setOverlay(true, "Tap below to enable camera and microphone");
-  setStatus("Permission required");
+  setOverlay(false);
+  setStatus("Tap button to start");
 
   if (el.btnEnableMedia) {
     el.btnEnableMedia.addEventListener("click", () => {
       start().catch(() => {});
     });
+  } else {
+    showNotice("Page error: enable button missing. Hard refresh the page.");
   }
 })();
 

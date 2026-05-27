@@ -19,7 +19,7 @@
           <div class="alert" role="alert">{{ error }}</div>
         {% endif %}
 
-        <form class="form" method="post" action="{{ url_for('login_post') }}" autocomplete="off">
+        <form class="form" method="post" action="/login" autocomplete="off">
           <input type="hidden" name="csrf" value="{{ csrf }}" />
 
           <label class="label" for="password">Password</label>

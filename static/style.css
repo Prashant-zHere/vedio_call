@@ -163,6 +163,20 @@ body{
   background: rgba(255,255,255,.04);
   text-align: center;
 }
+.permGate--fixed{
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  bottom: calc(12px + env(safe-area-inset-bottom));
+  z-index: 100;
+  margin: 0;
+  background: rgba(15,23,34,.96);
+  backdrop-filter: blur(14px);
+  box-shadow: var(--shadow);
+}
+.permGate[hidden]{
+  display: none !important;
+}
 .permGate__text{
   margin: 0 0 12px;
   font-size: 14px;

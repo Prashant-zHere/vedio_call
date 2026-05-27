@@ -53,7 +53,7 @@
       <section class="notice" id="notice" aria-live="polite"></section>
 
       <!-- Mobile: camera/mic must be requested after a user tap (browser security). -->
-      <section class="permGate" id="permGate" hidden>
+      <section class="permGate permGate--fixed" id="permGate">
         <p class="permGate__text" id="permGateText">
           Tap below to allow camera and microphone. Without this, the call cannot start.
         </p>
@@ -85,6 +85,6 @@
     </script>
     <!-- Socket.IO client served by Flask-SocketIO from same origin (no third-party CDN). -->
     <script src="/socket.io/socket.io.js" nonce="{{ nonce }}"></script>
-    <script src="{{ url_for('static', filename='app.js') }}" nonce="{{ nonce }}"></script>
+    <script src="{{ url_for('static', filename='app.js') }}?v=3" nonce="{{ nonce }}"></script>
   </body>
 </html>
