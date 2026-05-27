@@ -64,13 +64,6 @@
       </section>
     </main>
 
-    <!--
-      SCREENSHOT / RECORDING MITIGATION (IMPORTANT):
-      True screenshot/screen-recording prevention is NOT possible on the web.
-      Browsers and operating systems ultimately control capture APIs and user actions.
-      We only implement deterrence and risk-reduction UX (blur on tab hidden, disable right-click, etc.).
-    -->
-
     <script nonce="{{ nonce }}">
       // Inject minimal server-rendered config into JS without exposing secrets.
       window.__APP_CONFIG__ = Object.freeze({
@@ -83,8 +76,8 @@
         }
       });
     </script>
-    <!-- Socket.IO client served by Flask-SocketIO from same origin (no third-party CDN). -->
-    <script src="/socket.io/socket.io.js" nonce="{{ nonce }}"></script>
-    <script src="{{ url_for('static', filename='app.js') }}?v=4" nonce="{{ nonce }}"></script>
+    <!-- Use Socket.IO v4 CDN to avoid version mismatch -->
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js" nonce="{{ nonce }}"></script>
+    <script src="{{ url_for('static', filename='app.js') }}?v=5" nonce="{{ nonce }}"></script>
   </body>
 </html>

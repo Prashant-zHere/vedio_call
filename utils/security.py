@@ -32,22 +32,16 @@ def make_csrf_token() -> str:
 
 def hash_password_for_env(plain: str) -> str:
     # PBKDF2 is available in Werkzeug and is safe for password hashing.
-    # Render users can generate hashes locally and paste into env vars.
     return generate_password_hash(plain, method="pbkdf2:sha256", salt_length=16)
 
 
 def verify_password_hash(stored_hash: str, password: str) -> bool:
-    # Constant-time comparison is handled internally by Werkzeug.
     return check_password_hash(stored_hash, password)
 
 
 def stable_anonymous_client_key(secret: str, ip: str, user_agent: str) -> str:
     """
     Returns a privacy-preserving, non-reversible identifier for rate limiting / lockouts.
-
-    SECURITY/PRIVACY:
-    - We intentionally avoid storing raw IP addresses in memory/logs.
-    - This HMAC'd key is ephemeral (process memory only) and cannot be reversed without SECRET_KEY.
     """
     msg = (ip + "\n" + user_agent).encode("utf-8", "ignore")
     return hmac.new(secret.encode("utf-8"), msg, sha256).hexdigest()
@@ -62,10 +56,6 @@ class RateLimitState:
 class SlidingWindowRateLimiter:
     """
     Lightweight in-memory rate limiter.
-
-    SECURITY NOTE:
-    - This is process-local (no database per requirements).
-    - On multi-process deployments, use 1 worker (we do) or replace with Redis.
     """
 
     def __init__(self, limit_per_minute: int):
@@ -91,9 +81,6 @@ class LockoutState:
 class LoginLockout:
     """
     Anti-bruteforce lockout.
-
-    - After N failures, lock the client for a cooldown.
-    - Keyed by privacy-preserving client key (HMAC(IP+UA)).
     """
 
     def __init__(self, max_fails: int = 8, lock_seconds: int = 300):
@@ -106,7 +93,6 @@ class LoginLockout:
         if not st:
             return False
         if st.locked_until <= now():
-            # Expired lock; cleanup.
             del self._states[key]
             return False
         return True
@@ -128,12 +114,7 @@ class LoginLockout:
 def security_headers(nonce: str) -> Dict[str, str]:
     """
     Returns a set of strict security headers.
-
-    SECURITY NOTES:
-    - CSP is restrictive and uses a nonce for inline script injection protection.
-    - We disallow all third-party scripts/styles/fonts by default.
-    - WebRTC needs camera/mic permissions; Permissions-Policy is set accordingly.
-    - We disable embedding via frame-ancestors 'none' and X-Frame-Options.
+    CSP now allows the Socket.IO CDN for script loading.
     """
     csp = (
         "default-src 'none'; "
@@ -144,10 +125,8 @@ def security_headers(nonce: str) -> Dict[str, str]:
         "media-src 'self' blob:; "
         "connect-src 'self' wss: https:; "
         "style-src 'self'; "
-        f"script-src 'self' 'nonce-{nonce}'; "
+        f"script-src 'self' 'nonce-{nonce}' https://cdn.socket.io; "
     )
-    # SECURITY: HSTS is only safe/useful when HTTPS is actually enabled.
-    # In development we avoid sending HSTS so localhost HTTP works without TLS errors.
     flask_env = os.getenv("FLASK_ENV", "development").strip().lower()
     include_hsts = flask_env == "production"
 
@@ -164,13 +143,10 @@ def security_headers(nonce: str) -> Dict[str, str]:
     if include_hsts:
         headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains; preload"
 
-    return {
-        **headers
-    }
+    return headers
 
 
 def no_store_headers() -> Dict[str, str]:
-    # Prevent caching of authenticated pages/signaling responses.
     return {
         "Cache-Control": "no-store, max-age=0",
         "Pragma": "no-cache",
@@ -179,10 +155,6 @@ def no_store_headers() -> Dict[str, str]:
 
 
 def cli_main() -> None:
-    """
-    Minimal CLI helper to generate password hashes for .env / Render env vars:
-        python -m utils.security hash "password"
-    """
     import sys
 
     if len(sys.argv) >= 3 and sys.argv[1] == "hash":
