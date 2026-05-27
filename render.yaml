@@ -1,10 +1,10 @@
 services:
   - type: web
-    name: secure-1to1-video-call
+    name: VC
     env: python
     plan: free
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn --worker-class eventlet -w 1 app:app
+    startCommand: gunicorn --worker-class eventlet -w 1 --bind 0.0.0.0:$PORT app:app
     autoDeploy: true
     envVars:
       - key: FLASK_ENV

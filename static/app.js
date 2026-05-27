@@ -16,6 +16,10 @@
     btnMic: document.getElementById("btnMic"),
     btnCam: document.getElementById("btnCam"),
     btnHangup: document.getElementById("btnHangup"),
+    permGate: document.getElementById("permGate"),
+    permGateText: document.getElementById("permGateText"),
+    permGateHint: document.getElementById("permGateHint"),
+    btnEnableMedia: document.getElementById("btnEnableMedia"),
   };
 
   // ======= Screenshot/recording deterrence (NOT true prevention) =======
@@ -73,6 +77,32 @@
     if (!el.remoteOverlay) return;
     el.remoteOverlay.hidden = !on;
     if (el.remoteOverlayText && text) el.remoteOverlayText.textContent = text;
+  }
+
+  function showPermGate(show, hintText) {
+    if (!el.permGate) return;
+    el.permGate.hidden = !show;
+    if (el.permGateHint && hintText) el.permGateHint.textContent = hintText;
+  }
+
+  function permissionHelp(err) {
+    const name = err && err.name ? err.name : "";
+    if (name === "NotAllowedError" || name === "PermissionDeniedError") {
+      return (
+        "Permission was blocked. On phone: open browser site settings for this URL and allow Camera + Microphone, then tap the button again. " +
+        "Use Chrome or Safari (not in-app browsers like Instagram/WhatsApp)."
+      );
+    }
+    if (name === "NotFoundError" || name === "DevicesNotFoundError") {
+      return "No camera/microphone found on this device.";
+    }
+    if (name === "NotReadableError" || name === "TrackStartError") {
+      return "Camera/mic is in use by another app. Close other apps using the camera and try again.";
+    }
+    if (name === "SecurityError") {
+      return "Camera/mic requires HTTPS. Open the Render https:// link, not http://.";
+    }
+    return "Could not access camera/mic. Tap the button again or check browser permissions for this site.";
   }
 
   // ======= WebRTC state =======
@@ -138,7 +168,8 @@
     } catch (err) {
       setOverlay(true, "Camera/microphone permission is required.");
       setStatus("Permissions needed", "bad");
-      showNotice("Allow camera + microphone to start the call.");
+      showNotice(permissionHelp(err));
+      showPermGate(true, permissionHelp(err));
       throw err;
     }
   }
@@ -196,7 +227,6 @@
 
   async function start() {
     if (started) return;
-    started = true;
 
     if (!roomToken) {
       setStatus("Auth error", "bad");
@@ -206,12 +236,28 @@
 
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       setStatus("Unsupported", "bad");
-      showNotice("This browser does not support WebRTC getUserMedia.");
+      showNotice("This browser does not support WebRTC getUserMedia. Use Chrome or Safari.");
+      showPermGate(true, "Try opening this page in Chrome or Safari, not an in-app browser.");
       return;
     }
 
+    if (!window.isSecureContext) {
+      setStatus("HTTPS required", "bad");
+      showNotice("Camera/mic only works on HTTPS.");
+      showPermGate(true, "Open the https:// Render URL.");
+      return;
+    }
+
+    started = true;
+    showPermGate(false);
     setOverlay(true, "Preparing call…");
-    await ensureMedia();
+
+    try {
+      await ensureMedia();
+    } catch (_) {
+      started = false;
+      return;
+    }
 
     setStatus("Connecting…");
 
@@ -392,7 +438,18 @@
     });
   }
 
-  // Autostart.
-  start().catch(() => {});
+  // MOBILE: Do not auto-request camera/mic — browsers block it without a user tap.
+  showPermGate(
+    true,
+    "On iPhone/Android: use Chrome or Safari. After login, tap the button below to allow camera and microphone."
+  );
+  setOverlay(true, "Tap below to enable camera and microphone");
+  setStatus("Permission required");
+
+  if (el.btnEnableMedia) {
+    el.btnEnableMedia.addEventListener("click", () => {
+      start().catch(() => {});
+    });
+  }
 })();
 

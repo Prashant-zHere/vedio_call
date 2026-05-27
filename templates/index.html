@@ -51,6 +51,17 @@
       </section>
 
       <section class="notice" id="notice" aria-live="polite"></section>
+
+      <!-- Mobile: camera/mic must be requested after a user tap (browser security). -->
+      <section class="permGate" id="permGate" hidden>
+        <p class="permGate__text" id="permGateText">
+          Tap below to allow camera and microphone. Without this, the call cannot start.
+        </p>
+        <button class="btn btn--primary permGate__btn" id="btnEnableMedia" type="button">
+          Enable camera &amp; microphone
+        </button>
+        <p class="permGate__hint" id="permGateHint"></p>
+      </section>
     </main>
 
     <!--
