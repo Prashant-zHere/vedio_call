@@ -22,9 +22,7 @@
     btnEnableMedia: document.getElementById("btnEnableMedia"),
   };
 
-  // ======= Screenshot/recording deterrence (NOT true prevention) =======
-  // IMPORTANT: Real screenshot/screen-recording prevention is impossible in the browser.
-  // These measures only reduce casual capture and improve user awareness.
+  // ======= Screenshot/recording deterrence (best-effort) =======
   document.addEventListener("contextmenu", (e) => e.preventDefault(), { passive: false });
   document.addEventListener(
     "keydown",
@@ -32,8 +30,8 @@
       const key = String(e.key || "").toLowerCase();
       const ctrl = e.ctrlKey || e.metaKey;
       const blocked =
-        (ctrl && ["u", "s", "p"].includes(key)) || // view-source/save/print
-        (ctrl && e.shiftKey && ["i", "j", "c"].includes(key)) || // devtools shortcuts
+        (ctrl && ["u", "s", "p"].includes(key)) ||
+        (ctrl && e.shiftKey && ["i", "j", "c"].includes(key)) ||
         key === "f12";
       if (blocked) {
         e.preventDefault();
@@ -114,18 +112,28 @@
   let camEnabled = true;
   let started = false;
   let makingOffer = false;
-  let polite = true; // perfect negotiation: one side is polite (accepts glare)
+  let polite = true;
+  let pendingIceCandidates = [];
+  let remoteReady = false;
 
   const ICE_SERVERS = buildIceServers(cfg.turn);
+  const hasTurn = ICE_SERVERS.some((s) => {
+    const urls = s.urls;
+    const list = Array.isArray(urls) ? urls : [urls];
+    return list.some((u) => String(u).startsWith("turn:") || String(u).startsWith("turns:"));
+  });
   const RTC_CONFIG = {
     iceServers: ICE_SERVERS,
-    // Prefer security+reliability over exotic policies:
-    // Use "all" so candidates work on mobile networks; TURN is optional but recommended.
-    iceCandidatePoolSize: 2,
+    iceCandidatePoolSize: 4,
+    bundlePolicy: "max-bundle",
   };
 
   function buildIceServers(turn) {
-    const servers = [{ urls: ["stun:stun.l.google.com:19302"] }];
+    const servers = [
+      { urls: "stun:stun.l.google.com:19302" },
+      { urls: "stun:stun1.l.google.com:19302" },
+      { urls: "stun:stun2.l.google.com:19302" },
+    ];
     const urls = (turn && turn.urls ? String(turn.urls) : "").trim();
     const username = (turn && turn.username ? String(turn.username) : "").trim();
     const credential = (turn && turn.credential ? String(turn.credential) : "").trim();
@@ -148,7 +156,7 @@
     try {
       await el.localVideo.play();
     } catch (_) {
-      // iOS may require another tap; user can retry the enable button.
+      // iOS may require another tap
     }
   }
 
@@ -158,7 +166,6 @@
       { audio: true, video: true },
       { audio: true, video: false },
     ];
-
     let lastErr = null;
     for (const constraints of attempts) {
       try {
@@ -184,6 +191,7 @@
       await playLocalVideo();
       setOverlay(false);
       showPermGate(false);
+      console.log("[DEBUG] Media obtained successfully");
       return localStream;
     } catch (err) {
       setOverlay(false);
@@ -194,16 +202,62 @@
     }
   }
 
+  async function flushPendingIce() {
+    if (!pc || !pc.remoteDescription) return;
+    const queued = pendingIceCandidates.slice();
+    pendingIceCandidates = [];
+    for (const candidate of queued) {
+      try {
+        await pc.addIceCandidate(candidate);
+      } catch (_) {}
+    }
+  }
+
+  async function addRemoteIceCandidate(candidate) {
+    if (!pc || !candidate) return;
+    if (!pc.remoteDescription) {
+      pendingIceCandidates.push(candidate);
+      return;
+    }
+    try {
+      await pc.addIceCandidate(candidate);
+    } catch (_) {}
+  }
+
+  async function sendOffer() {
+    if (!pc || role !== "caller") {
+      console.log("[DEBUG] sendOffer skipped: pc=", !!pc, "role=", role);
+      return;
+    }
+    if (pc.signalingState !== "stable") {
+      console.log("[DEBUG] sendOffer skipped, signalingState=", pc.signalingState);
+      return;
+    }
+    try {
+      makingOffer = true;
+      console.log("[DEBUG] Creating offer");
+      await pc.setLocalDescription();
+      safeSignal("offer", pc.localDescription);
+    } catch (err) {
+      console.error("[DEBUG] sendOffer error", err);
+      showNotice("Could not start call negotiation. Tap enable again.");
+    } finally {
+      makingOffer = false;
+    }
+  }
+
   function createPeerConnection() {
+    pendingIceCandidates = [];
+    remoteReady = false;
     pc = new RTCPeerConnection(RTC_CONFIG);
 
     pc.addEventListener("track", (ev) => {
-      // Attach first remote stream.
       const [stream] = ev.streams;
       if (stream && el.remoteVideo.srcObject !== stream) {
         el.remoteVideo.srcObject = stream;
         el.remoteVideo.play().catch(() => {});
         setOverlay(false);
+        console.log("[DEBUG] Remote stream attached");
       }
     });
 
@@ -215,35 +269,62 @@
 
     pc.addEventListener("iceconnectionstatechange", () => {
       const s = pc.iceConnectionState;
-      if (s === "connected" || s === "completed") setStatus("Connected", "ok");
-      else if (s === "failed") {
-        setStatus("Reconnecting…");
-        // Attempt ICE restart to recover on mobile networks.
+      console.log("[DEBUG] ICE state:", s);
+      if (s === "connected" || s === "completed") {
+        setStatus("Connected", "ok");
+        showNotice("");
+      } else if (s === "failed") {
+        setStatus("Call failed", "bad");
+        showNotice(
+          hasTurn
+            ? "Video connection failed on mobile network. Close and reopen the page, then try again."
+            : "Mobile video often needs TURN. Add TURN_URLS, TURN_USERNAME, TURN_CREDENTIAL in Render env vars."
+        );
         try {
           pc.restartIce();
         } catch (_) {}
       } else if (s === "disconnected") {
-        setStatus("Disconnected…");
+        setStatus("Reconnecting…");
       } else {
         setStatus("Connecting…");
       }
     });
 
-    // Perfect negotiation pattern to reduce glare issues.
-    pc.addEventListener("negotiationneeded", async () => {
-      try {
-        makingOffer = true;
-        await pc.setLocalDescription();
-        safeSignal("offer", pc.localDescription);
-      } catch (err) {
-        // Intentionally avoid logging SDP.
-        showNotice("Negotiation error. Try reconnecting.");
-      } finally {
-        makingOffer = false;
+    pc.addEventListener("connectionstatechange", () => {
+      console.log("[DEBUG] Connection state:", pc.connectionState);
+      const s = pc.connectionState;
+      if (s === "connected") setStatus("Connected", "ok");
+      if (s === "failed") {
+        setStatus("Call failed", "bad");
+        if (!hasTurn) {
+          showNotice("WebRTC connection failed – you likely need TURN on Render.");
+        }
       }
     });
 
+    pc.addEventListener("negotiationneeded", async () => {
+      if (role !== "caller") return;
+      console.log("[DEBUG] negotiationneeded → sendOffer");
+      await sendOffer();
+    });
+
     return pc;
+  }
+
+  function addLocalTracksToPC() {
+    if (!pc || !localStream) return;
+    const senders = pc.getSenders();
+    const hasAudio = senders.some(s => s.track && s.track.kind === "audio");
+    const hasVideo = senders.some(s => s.track && s.track.kind === "video");
+    localStream.getTracks().forEach(track => {
+      if (track.kind === "audio" && !hasAudio) {
+        pc.addTrack(track, localStream);
+        console.log("[DEBUG] Added audio track");
+      } else if (track.kind === "video" && !hasVideo) {
+        pc.addTrack(track, localStream);
+        console.log("[DEBUG] Added video track");
+      }
+    });
   }
 
   async function start() {
@@ -273,19 +354,25 @@
     showPermGate(false);
     setOverlay(true, "Preparing call…");
 
+    // --- FIX: obtain media FIRST before connecting to signaling ---
     try {
       await ensureMedia();
-    } catch (_) {
+    } catch (err) {
+      console.error("[DEBUG] Media error:", err);
       started = false;
       return;
     }
 
     setStatus("Connecting…");
 
-    // Mobile/Render: allow polling fallback; same-origin HTTPS only.
+    // Connect Socket.IO with authentication in query string
     socket = io({
       transports: ["polling", "websocket"],
       withCredentials: true,
+      query: {
+        roomToken: roomToken,
+        userId: cfg.userId
+      },
       reconnection: true,
       reconnectionAttempts: Infinity,
       reconnectionDelay: 500,
@@ -294,21 +381,21 @@
     });
 
     socket.on("connect", () => {
+      console.log("[DEBUG] Socket connected, transport:", socket.io.engine.transport.name);
       setStatus("Connected to server…");
       safePing();
     });
 
     socket.on("disconnect", () => {
+      console.log("[DEBUG] Socket disconnected");
       setStatus("Reconnecting…");
       setOverlay(true, "Reconnecting…");
     });
 
     socket.on("connect_error", (err) => {
+      console.error("[DEBUG] Socket connect_error", err);
       setStatus("Server connection failed", "bad");
-      const msg =
-        err && err.message
-          ? `Cannot connect to server (${err.message}). Refresh and log in again.`
-          : "Cannot connect to server. Refresh, log in again, or check Render is running.";
+      const msg = `Cannot connect to server (${err?.message || "unknown"}). Refresh and log in again.`;
       showNotice(msg);
       setOverlay(true, "Server connection failed");
       started = false;
@@ -316,26 +403,38 @@
     });
 
     socket.on("session", async (payload) => {
+      console.log("[DEBUG] session event, role =", payload?.role);
       role = payload && payload.role ? payload.role : "callee";
-      // Polite/impolite choice: make caller impolite to break ties.
       polite = role !== "caller";
 
-      // Create PC and add tracks.
       createPeerConnection();
-      localStream.getTracks().forEach((t) => pc.addTrack(t, localStream));
+      addLocalTracksToPC();
 
-      // Show waiting state until remote arrives.
+      if (remoteReady && role === "caller") {
+        console.log("[DEBUG] Both peers present already, sending offer from session");
+        setTimeout(() => sendOffer(), 100);
+      }
+
       setOverlay(true, "Waiting for the other user…");
       setStatus("Waiting…");
     });
 
-    socket.on("peer_count", (p) => {
+    socket.on("peer_count", async (p) => {
       const count = Number(p && p.count ? p.count : 0);
       el.peerPill.textContent = `Peers: ${count}/2`;
+      console.log("[DEBUG] peer_count:", count);
       if (count === 2) {
+        remoteReady = true;
         setOverlay(false);
         setStatus("Connecting…");
+        if (role === "caller" && pc) {
+          console.log("[DEBUG] Both peers connected, caller sending offer");
+          setTimeout(() => sendOffer(), 400);
+        } else if (role === "caller" && !pc) {
+          console.log("[DEBUG] PC not ready, will send offer after session");
+        }
       } else {
+        remoteReady = false;
         setOverlay(true, "Waiting for the other user…");
         setStatus("Waiting…");
       }
@@ -352,23 +451,18 @@
           const desc = new RTCSessionDescription(data);
           const offerCollision = desc.type === "offer" && (makingOffer || pc.signalingState !== "stable");
           if (offerCollision && !polite) {
-            // Impolite side ignores glare offer.
+            console.log("[DEBUG] Ignoring glare offer");
             return;
           }
 
           await pc.setRemoteDescription(desc);
+          await flushPendingIce();
           if (desc.type === "offer") {
             await pc.setLocalDescription();
             safeSignal("answer", pc.localDescription);
           }
         } else if (type === "ice") {
-          if (data) {
-            try {
-              await pc.addIceCandidate(data);
-            } catch (err) {
-              // Ignore ICE errors during glare.
-            }
-          }
+          await addRemoteIceCandidate(data);
         } else if (type === "hangup") {
           endCall(false);
         } else if (type === "renegotiate") {
@@ -376,13 +470,12 @@
             pc.restartIce();
           } catch (_) {}
         }
-      } catch (_) {
-        // Avoid logging sensitive signaling contents (SDP/ICE).
+      } catch (err) {
+        console.error("[DEBUG] signal processing error", err);
         showNotice("Connection issue. Reconnecting…");
       }
     });
 
-    // Keepalive to ensure auth + session stays valid.
     socket.on("pong_secure", () => {});
     setInterval(safePing, 30000);
   }
@@ -400,7 +493,6 @@
   function updateButtons() {
     el.btnMic.textContent = micEnabled ? "Mic On" : "Mic Off";
     el.btnMic.setAttribute("aria-pressed", String(!micEnabled));
-
     el.btnCam.textContent = camEnabled ? "Cam On" : "Cam Off";
     el.btnCam.setAttribute("aria-pressed", String(!camEnabled));
   }
@@ -452,34 +544,36 @@
     }
   }
 
-  // ======= Mobile-friendly UX =======
+  // ======= UI event binding =======
   el.btnMic.addEventListener("click", toggleMic);
   el.btnCam.addEventListener("click", toggleCam);
   el.btnHangup.addEventListener("click", () => endCall(true));
   updateButtons();
 
-  // Warn if the user starts screen sharing (detectable only if they choose it).
-  // Note: Many browsers do not expose exact capture source; this is best-effort only.
+  // Warn about screen sharing (best-effort)
   if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) {
     navigator.mediaDevices.addEventListener("devicechange", () => {
       showNotice("Device change detected. If you are sharing your screen, stop sharing for privacy.");
     });
   }
 
-  // MOBILE: camera/mic must start from a user tap (browser security).
+  // Initial state: show permission gate
   showPermGate(
     true,
-    "Use Chrome or Safari (not WhatsApp/Instagram browser). Tap the green button, then tap Allow."
+    hasTurn
+      ? "Use Chrome or Safari. Tap the button, allow camera + mic, then wait for the other user."
+      : "Use Chrome or Safari. Mobile calls often fail without TURN — add TURN env vars on Render for best results."
   );
   setOverlay(false);
   setStatus("Tap button to start");
 
   if (el.btnEnableMedia) {
     el.btnEnableMedia.addEventListener("click", () => {
-      start().catch(() => {});
+      start().catch((err) => {
+        console.error("[DEBUG] start() failed", err);
+      });
     });
   } else {
     showNotice("Page error: enable button missing. Hard refresh the page.");
   }
 })();
-
